@@ -1,0 +1,172 @@
+(function () {
+  var version = "2";
+  var existing = window.__reelCartLoader;
+
+  if (existing && existing.version === version) {
+    existing.discover(document);
+    return;
+  }
+
+  var state = {
+    version: version,
+    status: window.reelCartLoaded ? "ready" : "idle",
+    runtimeUrl: "",
+    observedHosts: new Set(),
+    observer: null,
+    idleScheduled: false,
+  };
+
+  state.load = function (reason) {
+    if (state.status === "loading" || state.status === "ready") return;
+
+    if (!state.runtimeUrl) {
+      var runtimeHost = document.querySelector(
+        "[data-rc-video-block][data-rc-runtime-url]",
+      );
+      state.runtimeUrl = runtimeHost
+        ? runtimeHost.getAttribute("data-rc-runtime-url") || ""
+        : "";
+    }
+
+    if (!state.runtimeUrl) return;
+
+    var scripts = Array.from(document.scripts);
+    var runtimeScript = scripts.find(function (script) {
+      return script.src === state.runtimeUrl;
+    });
+
+    if (runtimeScript) {
+      state.status = window.reelCartLoaded ? "ready" : "loading";
+      return;
+    }
+
+    state.status = "loading";
+    state.reason = reason;
+    runtimeScript = document.createElement("script");
+    runtimeScript.src = state.runtimeUrl;
+    runtimeScript.type = "module";
+    runtimeScript.async = true;
+    runtimeScript.dataset.reelcartRuntime = version;
+    runtimeScript.addEventListener("error", function () {
+      state.status = "failed";
+      runtimeScript.remove();
+    });
+    document.body.appendChild(runtimeScript);
+  };
+
+  state.scheduleIdle = function (reason) {
+    if (state.idleScheduled || state.status !== "idle") return;
+
+    if (document.readyState !== "complete") {
+      state.idleScheduled = true;
+      window.addEventListener(
+        "load",
+        function () {
+          state.idleScheduled = false;
+          state.scheduleIdle(reason);
+        },
+        { once: true },
+      );
+      return;
+    }
+
+    state.idleScheduled = true;
+    if ("requestIdleCallback" in window) {
+      window.requestIdleCallback(
+        function () {
+          state.idleScheduled = false;
+          state.load(reason);
+        },
+        { timeout: 4000 },
+      );
+    } else {
+      window.setTimeout(function () {
+        state.idleScheduled = false;
+        state.load(reason);
+      }, 2500);
+    }
+  };
+
+  state.observer =
+    "IntersectionObserver" in window
+      ? new IntersectionObserver(
+          function (entries) {
+            if (
+              entries.some(function (entry) {
+                return entry.isIntersecting;
+              })
+            ) {
+              state.load("near-viewport");
+            }
+          },
+          { rootMargin: "300px 0px", threshold: 0.01 },
+        )
+      : null;
+
+  state.discover = function (root) {
+    var hosts = [];
+    if (root instanceof Element && root.matches("[data-rc-video-block]")) {
+      hosts.push(root);
+    }
+    if (root.querySelectorAll) {
+      hosts = hosts.concat(
+        Array.from(root.querySelectorAll("[data-rc-video-block]")),
+      );
+    }
+
+    hosts.forEach(function (host) {
+      var runtimeUrl = host.getAttribute("data-rc-runtime-url");
+      if (runtimeUrl) state.runtimeUrl = runtimeUrl;
+
+      if (host.getAttribute("data-rc-video-block") === "floating") {
+        state.scheduleIdle("floating-idle");
+        return;
+      }
+
+      if (state.status === "ready" || state.observedHosts.has(host)) return;
+
+      var bounds = host.getBoundingClientRect();
+      if (bounds.top <= window.innerHeight + 300 && bounds.bottom >= -300) {
+        state.load("near-viewport");
+      } else if (state.observer) {
+        state.observedHosts.add(host);
+        state.observer.observe(host);
+      } else {
+        state.scheduleIdle("observer-fallback");
+      }
+    });
+  };
+
+  window.__reelCartLoader = state;
+  window.loadReelCart = state.load;
+
+  window.addEventListener("reelcart:ready", function () {
+    state.status = "ready";
+    if (state.observer) state.observer.disconnect();
+    state.observedHosts.clear();
+  });
+
+  document.addEventListener("shopify:section:load", function (event) {
+    state.discover(event.target);
+  });
+
+  document.addEventListener("shopify:section:unload", function (event) {
+    if (!state.observer || !(event.target instanceof Element)) return;
+    event.target.querySelectorAll("[data-rc-video-block]").forEach(function (host) {
+      state.observer.unobserve(host);
+      state.observedHosts.delete(host);
+    });
+  });
+
+  document.addEventListener("shopify:block:select", function (event) {
+    if (!(event.target instanceof Element)) return;
+    if (
+      event.target.matches("[data-rc-video-block]") ||
+      event.target.querySelector("[data-rc-video-block]")
+    ) {
+      state.load("theme-editor-selection");
+    }
+  });
+
+  state.discover(document);
+})();

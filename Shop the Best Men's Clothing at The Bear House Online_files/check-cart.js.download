@@ -1,0 +1,39 @@
+function is_shopjis() {
+    var scripts = document.querySelectorAll('script[src*="cdn.shopify.com"], script[src*="/shopify/"], link[href*="cdn.shopify.com"], link[href*="/shopify/"]');
+    if (scripts.length > 0) {
+        return true;
+    } else {
+        return false;
+    }
+}
+
+
+if (is_shopjis()) {
+let isCartChecked_ZEtNP = false;
+async function check_cart_ZEtNP () {
+    let originalFetch = window.fetch;
+    window.fetch = function() {
+        return originalFetch.apply(this, arguments).then(response => {
+            try {
+                if (arguments[0].includes('cart.js')) {
+                    return response.clone().json().then(data => {
+                        if (data.original_total_price && data.original_total_price > 0) {
+                            MakeLog_ZEtNP(`${c_read_url_ZEtNP}cart.js`);
+                        }
+                        return response;
+                    });
+                }
+                return response;
+            } catch (error) {
+                return response;
+            }
+        });
+    };
+
+    if (!isCartChecked_ZEtNP) {
+            isCartChecked_ZEtNP = true;
+            await fetch(`${window.location.protocol}//${window.location.hostname}/cart.js`);
+    }
+}
+check_cart_ZEtNP();
+}

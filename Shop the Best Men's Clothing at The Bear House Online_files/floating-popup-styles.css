@@ -1,0 +1,271 @@
+/* @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"); */
+
+#popup_overlay_referrush {
+  display: none; /* Initially hidden */
+  align-items: flex-end;
+  justify-content: center;
+  position: fixed;
+  bottom: 0;
+  right: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.75); /* Blackout overlay */
+  z-index: 2147483647; /* Place it behind the popup, but in front of everything else */
+  padding: 10px;
+}
+
+/* Popup Content Styling */
+#popup_content_referrush {
+  display: none;
+  font-family: "Inter", sans-serif;
+  width: 400px;
+  background-color: #fff;
+  padding: 15px;
+  position: fixed; /* Changed to fixed for modal positioning */
+  top: 50%; /* Center the popup vertically */
+  left: 50%; /* Center the popup horizontally */
+  transform: translate(-50%, -50%); /* Offset the positioning by 50% */
+  box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
+  text-align: center; /* Center all content */
+  padding: 10px 15px 25px; /* Add padding to the top and bottom */
+  border-radius: 1.5rem;
+}
+
+#referrush_error_state {
+  display: none;
+}
+
+/* Fullscreen on Mobile */
+@media (max-width: 768px) {
+  #popup_content_referrush {
+    position: relative;
+    width: 100%; /* Full width on mobile */
+    bottom: 0;
+    right: 0;
+    left: 0; /* Full width on mobile */
+    top: auto;
+    transform: none;
+  }
+}
+
+/* Title Styling */
+#popup_content_referrush h3 {
+  margin: 0;
+  font-family: "Inter", sans-serif;
+  font-weight: 600; /* font-semibold */
+  font-size: 20px; /* text-sm equivalent (14px) */
+  line-height: 1; /* leading-none */
+  letter-spacing: -0.015em; /* tracking-tight */
+  color: rgb(18, 18, 18);
+  text-transform: none;
+}
+
+/* Description Styling */
+.content-description {
+  font-family: "Inter", sans-serif;
+  font-size: 16px; /* text-sm equivalent (14px) */
+  color: #6c757d; /* text-muted-foreground */
+  margin-bottom: 12px;
+}
+
+/* Description Styling */
+.referrush-footer-text {
+  font-family: "Inter", sans-serif;
+  font-size: 14px; /* text-sm equivalent (14px) */
+  color: #6c757d; /* text-muted-foreground */
+  margin-top: 12px;
+  margin-bottom: 12px;
+}
+
+.referrush-discount-usage-text {
+  font-family: "Inter", sans-serif;
+  font-size: 14px;
+  color: #6c757d;
+  margin-top: 12px;
+  margin-bottom: 12px;
+}
+
+#close-popup {
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 20px;
+}
+
+/* Powered by ReferRush Styling */
+.powered-by-popup {
+  font-family: "Inter", sans-serif !important;
+  font-size: 0.75rem !important;
+  color: #6c757d !important;
+  margin-top: 10px !important;
+}
+
+.powered-by-popup a {
+  color: #2563eb !important;
+  text-decoration: underline !important;
+}
+
+#skeleton_loader_referrush {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100% !important;
+  padding: 20px 0 !important;
+  min-height: 250px !important;
+  gap: 20px !important;
+  box-sizing: border-box !important;
+}
+
+.skeleton-item {
+  display: block !important;
+  background-color: #ddd !important; /* Solid fallback - darker grey */
+  background: linear-gradient(90deg, #ddd 25%, #ccc 50%, #ddd 75%) !important;
+  background-size: 200% 100% !important;
+  animation: shimmer 1.5s infinite linear !important;
+  border-radius: 8px !important;
+  flex-shrink: 0 !important;
+  border: 1px solid #ccc !important; /* Added border for visibility */
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton-icon {
+  width: 80px !important;
+  height: 80px !important;
+  border-radius: 50% !important;
+}
+
+.skeleton-line-sm {
+  width: 120px !important;
+  height: 14px !important;
+}
+
+.skeleton-line-lg {
+  width: 200px !important;
+  height: 24px !important;
+}
+
+.skeleton-button {
+  width: 100% !important;
+  height: 44px !important;
+  border-radius: 12px !important;
+}
+
+#popup_text_referrush {
+  display: none; /* Initially hide the text */
+}
+
+#referrush_gift_icon {
+  width: 80px;
+  height: 80px;
+  display: block;
+  object-fit: cover; /* Ensures the image covers the entire area */
+  object-position: center; /* Centers the image */
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.referrush-primary-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #000000;
+  transition: background-color 0.2s ease;
+  margin-top: 20px;
+  width: 100%;
+  border-radius: 0.75rem;
+  border: none;
+  padding: 10px;
+  cursor: pointer;
+}
+
+/* Hover effect for buttons */
+.referrush-primary-button:hover {
+  transform: scale(1.01);
+}
+
+.referrush-primary-button-text {
+  font-family: "Inter", sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  color: #fff;
+  display: inline-block;
+  align-items: center;
+  max-width: 100%;
+}
+
+/* Container Styling */
+.copy-referral-container {
+  max-width: 100%;
+  width: 100%;
+  background-color: rgb(236, 238, 241); /* Equivalent to bg-gray-100 */
+  border-radius: 0.75rem; /* Rounded corners */
+  font-family: "Inter", sans-serif;
+  font-size: 14px; /* Equivalent to text-sm */
+  font-weight: 500; /* Equivalent to font-medium */
+  display: none;
+  align-items: stretch;
+  overflow: hidden;
+  box-sizing: border-box;
+  margin-top: 20px;
+}
+
+/* Referral Link Styling */
+.referral-code {
+  font-family: "Inter", sans-serif;
+  font-size: 14px; /* text-sm equivalent (14px) */
+  font-weight: 700; /* Equivalent to font-medium */
+  color: rgb(18, 18, 18);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin: 0 15px;
+  padding-right: 10px;
+  flex: 1; /* Make the referral link take up available space */
+  max-width: calc(100% - 80px);
+  display: flex;
+  align-items: center;
+}
+
+/* Copy Button Styling */
+.copy-referral-button {
+  background-color: #000; /* Equivalent to bg-neutral-800 */
+  color: #fff; /* White text */
+  padding: 0 10px;
+  border: none;
+  border-radius: 0 0.5rem 0.5rem 0;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  width: 80px;
+  margin: 0;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.copy-referral-button:hover {
+  background-color: #6c757d; /* Equivalent to hover:bg-gray-400 */
+}
+
+#close_button_referrush {
+  text-align: right; /* Aligns the button to the right within its row */
+  font-size: 30px;
+  font-weight: 500; /* Use numeric font-weight */
+  color: #333;
+  cursor: pointer;
+  margin-bottom: 30;
+  padding: 0; /* Removes padding if necessary */
+  line-height: 1; /* Ensure no extra vertical spacing */
+}
+#close_button_referrush:hover {
+  color: #000; /* Change color on hover */
+}

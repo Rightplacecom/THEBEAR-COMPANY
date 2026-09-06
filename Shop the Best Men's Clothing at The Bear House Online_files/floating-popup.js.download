@@ -1,0 +1,1044 @@
+const popupTemplate = document.getElementById("referrush-popup-template");
+if (popupTemplate) {
+  document.body.appendChild(popupTemplate.content.cloneNode(true));
+}
+
+const defaultPopupCooldownMs = 6 * 60 * 60 * 1000;
+const popupBorderRadiusMin = 0;
+const popupBorderRadiusMax = 24;
+const defaultPopupCustomisation = {
+  backgroundColor: "#ffffff",
+  secondaryTextColor: "#7b7d80",
+  primaryTextColor: "#000000",
+  buttonBackgroundColor: "#000000",
+  buttonTextColor: "#ffffff",
+  inputBackgroundColor: "#e6e6e6",
+  inputTextColor: "#000000",
+  primaryText: "{{discountOffer}} off when you spend {{minimumOrderAmount}}!",
+  secondaryText: "{{name}} sent you",
+  buttonPadding: 14,
+  inputPadding: 14,
+  buttonBorderRadius: 12,
+  inputBorderRadius: 12,
+};
+
+const shop = document.getElementById("popup_form_referrush").dataset.shopDomain;
+
+function getQueryParamsByLowerKey() {
+  const params = new Map();
+  for (const [key, value] of new URLSearchParams(window.location.search)) {
+    const lowerKey = key.toLowerCase();
+    if (!params.has(lowerKey)) params.set(lowerKey, value);
+  }
+  return params;
+}
+
+const GENERIC_POPUP_ERROR = {
+  title: "Unable to load your discount",
+  body: "We couldn't load your discount right now. Please continue shopping — your cart is safe.",
+};
+
+const DISCOUNT_CODE_POPUP_ERROR = {
+  title: "Discount link has expired",
+  body: "The discount on this link is no longer valid. Please ask the sender for a fresh link.",
+};
+
+function getPopupErrorCopy(errorCode) {
+  if (
+    errorCode === "DISCOUNT_NOT_FOUND" ||
+    errorCode === "DISCOUNT_DETAILS_MISSING"
+  ) {
+    return DISCOUNT_CODE_POPUP_ERROR;
+  }
+  return GENERIC_POPUP_ERROR;
+}
+
+const getCurrentPath = () => window.location.pathname;
+const isHomePage = () => getCurrentPath() === "/";
+const isProductsPage = () => getCurrentPath().startsWith("/products/");
+const isCollectionsPage = () => getCurrentPath().startsWith("/collections/");
+
+// ---------------------------------------------------
+// INIT FUNCTION - THIS FUNCTIONS RUNS IN THE START
+// ---------------------------------------------------
+(async function initPopup() {
+  try {
+    // CHECK IF PARAMS ARE IN THE URL OR NOT (NAMES CASE-INSENSITIVE, VALUES VERBATIM)
+    const queryParams = getQueryParamsByLowerKey();
+    const rawReferralId = queryParams.get("referralid") ?? null;
+
+    let referralId = rawReferralId;
+
+    // EXTRACT ORDER ID IF THE LINK IS COMING FROM THANK YOU/ORDER STATUS EXTENSION
+    // 1234 or 1234-whatsapp or o-1234 || o-1234-whatsapp
+    // Outputs: 12345 OR o-12345
+    if (referralId) {
+      const parts = referralId.split("-");
+      if (parts[0] === "o" && parts.length > 1) {
+        referralId = `${parts[0]}-${parts[1]}`;
+      } else {
+        referralId = parts[0];
+      }
+    }
+
+    let referralSource = queryParams.get("source") ?? null;
+
+    // EXTRACT SOURCE FROM REFERRAL ID IF THE LINK SEGREGATES THEM WITH "-" SYMBOL
+    // 1234-whatsapp || o-1234-whatsapp
+    if (referralSource === null && rawReferralId) {
+      const parts = rawReferralId.split("-");
+      if (parts[0] === "o") {
+        if (parts.length >= 3) referralSource = parts[2];
+      } else {
+        if (parts.length >= 2) referralSource = parts[1];
+      }
+    }
+
+    const affiliateDiscount = queryParams.get("discount") ?? null;
+
+    const isAffiliate = !!affiliateDiscount;
+    const isReferral = !!referralId;
+
+    // IF THE USER IS COMING FROM ACTUAL POPUP URL
+    if (referralId || affiliateDiscount) {
+      if (isReferral && referralSource == null) {
+        handleRenderError({ errorCode: "MISSING_PARAMS_REFERRAL" });
+        return;
+      }
+
+      handleShowSkeleton();
+
+      // FETCH POPUP SETTINGS (WINNER PARAMS ONLY — LOSER SENT AS NULL)
+      const fetchPopupResponse = await handleFetchPopupSettings({
+        shop,
+        referralId: isAffiliate ? null : referralId,
+        referralSource: isAffiliate ? null : referralSource,
+        affiliateDiscount: affiliateDiscount || null,
+      });
+
+      if (!fetchPopupResponse.success) {
+        console.error(fetchPopupResponse.message);
+        handleRenderError({ errorCode: fetchPopupResponse.errorCode });
+        return;
+      }
+
+      const popupSettings = fetchPopupResponse.popupSettings;
+      const merchantData = fetchPopupResponse.merchantData;
+      const referrerData = fetchPopupResponse.referrerData;
+      const discountCode = referrerData?.discountCode;
+
+      if (merchantData?.programStatus?.isEnabled === false) {
+        handleRenderPausedPopup({ popupSettings, merchantData, isAffiliate });
+        return;
+      }
+
+      // RENDER THE POPUP WITH THE RENDERING LOGIC
+      if (Number(referrerData?.discountAmount) !== 0) {
+        handleRenderPopup({
+          popupSettings,
+          merchantData,
+          referrerData,
+          isAffiliate,
+          referralId: isAffiliate ? null : referralId,
+          referralSource: isAffiliate ? null : referralSource,
+          discountCode,
+          referrushPopupLastShown: Date.now(),
+          clearOppositeAttribution: true,
+        });
+      } else {
+        handleApplyDiscountCode({ discountCode }).then((success) => {
+          if (!success) {
+            console.error("Failed to auto apply discount code");
+          } else {
+            console.log(`Discount code applied: ${discountCode}`);
+          }
+        });
+
+        // URL FLOW SWIPE — LOSER TRAIL REMOVED, WINNER WRITTEN
+        if (isAffiliate) {
+          clearCookies(["referrushReferralId", "referrushSource"]);
+          handleUpdateReferralAttributes({
+            referrushPopupLastShown: Date.now(),
+            referrushAffiliateDiscount: affiliateDiscount,
+            clearReferral: true,
+          });
+        } else {
+          clearCookies(["referrushAffiliateDiscount"]);
+          handleUpdateReferralAttributes({
+            referrushReferralId: referralId,
+            referrushSource: referralSource,
+            referrushPopupLastShown: Date.now(),
+            clearAffiliate: true,
+          });
+        }
+      }
+
+      // SET/UPDATE COOKIES
+      let cookieData = null;
+
+      if (popupSettings.reTrigger) {
+        const totalHours =
+          popupSettings.reTriggerDurationHours !== undefined
+            ? Number(popupSettings.reTriggerDurationHours)
+            : 6;
+        const cooldownMs = totalHours * 60 * 60 * 1000;
+
+        if (isAffiliate) {
+          cookieData = {
+            ...(affiliateDiscount && {
+              referrushAffiliateDiscount: affiliateDiscount,
+            }),
+            referrushPopupLastShown: Date.now(),
+            referrushPopupCooldownMs: cooldownMs,
+          };
+        } else {
+          cookieData = {
+            ...(referralId && { referrushReferralId: referralId }),
+            ...(referralSource && { referrushSource: referralSource }),
+            referrushPopupLastShown: Date.now(),
+            referrushPopupCooldownMs: cooldownMs,
+          };
+        }
+      }
+
+      if (
+        popupSettings.reTrigger &&
+        (popupSettings.cookieExpiration !== "afterXdays" ||
+          Number(popupSettings.expiresAfterDays) !== 0)
+      ) {
+        setCookies({
+          cookieData,
+          expiresAfterDays:
+            popupSettings.cookieExpiration === "afterXdays"
+              ? Number(popupSettings.expiresAfterDays)
+              : null,
+        });
+      }
+    }
+    // IF USER NOT COMING FROM POPUP URL, CHECK IF COOKIES ARE SET OR NOT
+    else {
+      // FETCH COOKIES
+      const cookieData = getCookies([
+        "referrushReferralId",
+        "referrushSource",
+        "referrushAffiliateDiscount",
+        "referrushPopupLastShown",
+        "referrushPopupCooldownMs",
+      ]);
+
+      // CHECK IF THE PRIMARY COOKIES ARE PRESENT OR NOT, IF NOT, THEN DON'T RENDER
+      if (
+        !cookieData.referrushReferralId &&
+        !cookieData.referrushAffiliateDiscount
+      ) {
+        return;
+      }
+
+      const isAffiliateCookie = !!cookieData.referrushAffiliateDiscount;
+      const isReferralCookie = !!cookieData.referrushReferralId;
+
+      // REFERRAL WINNER REQUIRES A SOURCE — SILENTLY SKIP WITHOUT IT (NO ERROR CARD ON COOKIE FLOW)
+      if (isReferralCookie && cookieData.referrushSource == null) {
+        return;
+      }
+
+      // IF APPROPRIATE COOKIE PRESENT, CHECK FOR LAST RENDER TIMESTAMP
+      const lastPopupShownTimestamp = cookieData.referrushPopupLastShown;
+
+      // IF THE LAST SHOWN TIMESTAMP COOKIE NOT PRESENT, RETURN
+      if (!lastPopupShownTimestamp) {
+        return;
+      }
+
+      // COOLDOWN CHECK BEFORE FETCH — SKIP THE BACKEND CALL WHEN COOLING DOWN
+      const popupCooldownMs =
+        Number(cookieData.referrushPopupCooldownMs) || defaultPopupCooldownMs;
+
+      if (Number(lastPopupShownTimestamp) + popupCooldownMs > Date.now()) {
+        return;
+      }
+
+      // FETCH POPUP SETTINGS (WINNER PARAMS ONLY — LOSER SENT AS NULL)
+      const fetchPopupResponse = await handleFetchPopupSettings({
+        shop,
+        referralId: isAffiliateCookie
+          ? null
+          : cookieData.referrushReferralId || null,
+        referralSource: isAffiliateCookie
+          ? null
+          : cookieData.referrushSource || null,
+        affiliateDiscount: cookieData.referrushAffiliateDiscount || null,
+      });
+
+      // COOKIE FLOW STAYS SILENT ON FAILURE — NO ERROR CARD
+      if (!fetchPopupResponse.success) {
+        console.error(fetchPopupResponse.message);
+        return;
+      }
+
+      const popupSettings = fetchPopupResponse.popupSettings;
+      const merchantData = fetchPopupResponse.merchantData;
+      const referrerData = fetchPopupResponse.referrerData;
+      const cookieDiscountCode = referrerData?.discountCode;
+
+      // If program is disabled, show paused popup instead
+      handleShowSkeleton();
+
+      if (merchantData?.programStatus?.isEnabled === false) {
+        handleRenderPausedPopup({
+          popupSettings,
+          merchantData,
+          isAffiliate: isAffiliateCookie,
+        });
+        return;
+      }
+
+      // RENDER THE POPUP WITH THE RENDERING LOGIC
+      if (Number(referrerData?.discountAmount) !== 0) {
+        handleRenderPopup({
+          popupSettings,
+          merchantData,
+          referrerData,
+          isAffiliate: isAffiliateCookie,
+          referralId: isAffiliateCookie ? null : cookieData.referrushReferralId,
+          referralSource: isAffiliateCookie ? null : cookieData.referrushSource,
+          discountCode: cookieDiscountCode,
+          referrushPopupLastShown: cookieData.referrushPopupLastShown,
+        });
+      } else {
+        handleApplyDiscountCode({ discountCode: cookieDiscountCode }).then(
+          (success) => {
+            if (!success) {
+              console.error("Failed to auto apply discount code");
+            } else {
+              console.log(`Discount code applied: ${cookieDiscountCode}`);
+            }
+          },
+        );
+
+        // WINNER-ONLY ATTRIBUTION — LOSER KEYS LEFT AS THEY ARE, NEVER CLEARED
+        if (isAffiliateCookie) {
+          handleUpdateReferralAttributes({
+            referrushPopupLastShown: cookieData.referrushPopupLastShown,
+            referrushAffiliateDiscount: cookieData.referrushAffiliateDiscount,
+          });
+        } else {
+          handleUpdateReferralAttributes({
+            referrushReferralId: cookieData.referrushReferralId,
+            referrushSource: cookieData.referrushSource,
+            referrushPopupLastShown: cookieData.referrushPopupLastShown,
+          });
+        }
+      }
+
+      const totalHours =
+        popupSettings.reTriggerDurationHours !== undefined
+          ? Number(popupSettings.reTriggerDurationHours)
+          : 6;
+      const cooldownMs = totalHours * 60 * 60 * 1000;
+
+      const updatedCookieData = {
+        referrushPopupLastShown: Date.now(),
+        referrushPopupCooldownMs: cooldownMs,
+      };
+
+      if (
+        popupSettings.cookieExpiration !== "afterXdays" ||
+        Number(popupSettings.expiresAfterDays) !== 0
+      ) {
+        setCookies({ cookieData: updatedCookieData });
+      }
+    }
+  } catch (error) {
+    console.log(`Error initialising notification popup: ${error}`);
+    handleClosePopup();
+  }
+})();
+
+// -------------------------------
+// COOKIE RELATED FUNCTIONS
+// -------------------------------
+function setCookies({ cookieData, expiresAfterDays = null }) {
+  let expires = "";
+  if (expiresAfterDays) {
+    const days = Number(expiresAfterDays);
+    if (!isNaN(days)) {
+      const date = new Date();
+      date.setTime(date.getTime() + days * 24 * 60 * 60 * 1000);
+      expires = `; expires=${date.toUTCString()}`;
+    }
+  }
+
+  Object.entries(cookieData).forEach(([key, value]) => {
+    document.cookie = `${key}=${value}${expires}; path=/`;
+  });
+}
+
+// DELETE BROWSER COOKIES BY EXPIRING THEM (SAME PATH THEY WERE SET WITH).
+// ONLY USED FOR LOSER ATTRIBUTION ON URL FLOW — COOKIE FLOW NEVER DELETES.
+function clearCookies(cookieNames) {
+  if (!cookieNames || cookieNames.length === 0) return;
+
+  const past = "Thu, 01 Jan 1970 00:00:00 UTC";
+  cookieNames.forEach((name) => {
+    document.cookie = `${name}=; expires=${past}; path=/`;
+  });
+}
+
+function getCookies(cookieNames) {
+  const cookies = document.cookie.split(";").reduce((acc, cookie) => {
+    const separatorIndex = cookie.indexOf("=");
+    if (separatorIndex === -1) return acc;
+    const key = cookie.slice(0, separatorIndex).trim();
+    const rawValue = cookie.slice(separatorIndex + 1).trim();
+    if (!key) return acc;
+    try {
+      acc[key] = decodeURIComponent(rawValue);
+    } catch {
+      acc[key] = rawValue;
+    }
+    return acc;
+  }, {});
+
+  return cookieNames.reduce((acc, cookieName) => {
+    acc[cookieName] = cookies[cookieName] ?? undefined;
+    return acc;
+  }, {});
+}
+
+// -----------------------------------------
+// POPUP RENDERING RELATED FUNCTIONS
+// -----------------------------------------
+async function handleFetchPopupSettings({
+  shop,
+  referralId,
+  referralSource,
+  affiliateDiscount,
+}) {
+  try {
+    const response = await fetch(
+      `https://asia-south1-refero1.cloudfunctions.net/getPopupSettings`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          shop,
+          referralId,
+          referralSource,
+          affiliateDiscount,
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      console.error(`Error while fetching popup settings: ${response.status}`);
+      let errorCode;
+
+      try {
+        const errorData = await response.clone().json();
+        errorCode = errorData?.data?.errorCode;
+      } catch {
+        errorCode = undefined;
+      }
+      return {
+        success: false,
+        errorCode,
+        message: `Error while fetching popup settings`,
+      };
+    }
+
+    const data = await response.json();
+
+    if (!data.success) {
+      return {
+        success: false,
+        errorCode: data.data?.errorCode,
+        message: data.message || `Cannot fetch popup settings`,
+      };
+    }
+
+    return {
+      success: true,
+      message: `Popup settings fetched successfully`,
+      popupSettings: data.data.popupSettingsData,
+      merchantData: data.data.merchantData,
+      referrerData: data.data.referrerData,
+    };
+  } catch (error) {
+    console.error(`Error while fetching popup settings: ${error}`);
+    return {
+      success: false,
+      errorCode: undefined,
+      message: error.message || `Error while fetching popup settings`,
+    };
+  }
+}
+
+function handleRenderPopup({
+  popupSettings,
+  merchantData,
+  referrerData,
+  isAffiliate,
+  referralId,
+  referralSource,
+  discountCode,
+  referrushPopupLastShown,
+  clearOppositeAttribution,
+}) {
+  // CHECK IF POPUP ALLOWED ON CURRENT PAGE
+  let isPopupAllowed = false;
+
+  if (isHomePage()) isPopupAllowed = true;
+  if (isProductsPage())
+    isPopupAllowed = popupSettings.enabledOnProductsPage !== false;
+  if (isCollectionsPage())
+    isPopupAllowed = popupSettings.enabledOnCollectionsPage !== false;
+
+  if (!isPopupAllowed) {
+    document.getElementById("popup_form_referrush").style.display = "none";
+    document.getElementById("popup_overlay_referrush").style.display = "none";
+    return;
+  }
+
+  document.getElementById("popup_content_referrush").style.display = "block";
+  document.getElementById("skeleton_loader_referrush").style.display = "flex";
+  document.getElementById("popup_text_referrush").style.display = "none";
+  document.getElementById("popup_overlay_referrush").style.display = "flex";
+
+  handleUpdatePopupContent({
+    popupSettings,
+    merchantData,
+    referrerData,
+    isAffiliate,
+  });
+
+  handleDiscountCode(referrerData?.discountCode);
+
+  handleApplyDiscountCode({ discountCode }).then((success) => {
+    if (!success) {
+      console.error("Failed to auto apply discount code");
+    } else {
+      console.log(`Discount code applied: ${discountCode}`);
+    }
+  });
+
+  // URL FLOW SWIPE — AN EXPLICIT URL IS USER INTENT, SO THE LOSER'S STORED
+  // TRAIL IS REMOVED (COOKIES DELETED, CART KEYS EMPTIED). COOKIE FLOW
+  // NEVER SETS clearOppositeAttribution, SO IT STAYS APPEND-ONLY.
+  if (clearOppositeAttribution) {
+    if (isAffiliate) {
+      clearCookies(["referrushReferralId", "referrushSource"]);
+    } else {
+      clearCookies(["referrushAffiliateDiscount"]);
+    }
+  }
+
+  // WINNER-ONLY ATTRIBUTION — LOSER KEYS LEFT AS THEY ARE, NEVER CLEARED
+  if (isAffiliate) {
+    handleUpdateReferralAttributes({
+      referrushPopupLastShown,
+      referrushAffiliateDiscount: discountCode,
+      clearReferral: clearOppositeAttribution === true,
+    });
+  } else {
+    handleUpdateReferralAttributes({
+      referrushReferralId: referralId,
+      referrushSource: referralSource,
+      referrushPopupLastShown,
+      clearAffiliate: clearOppositeAttribution === true,
+    });
+  }
+}
+
+function handleUpdatePopupContent({
+  popupSettings,
+  merchantData,
+  referrerData,
+  isAffiliate,
+}) {
+  const popupCustomisation = getPopupCustomisation(popupSettings);
+  const rawPopupCustomisation = popupSettings?.popupCustomisation || {};
+  const discountOffer = getDiscountOfferText({ merchantData, referrerData });
+  const minimumOrderAmount = getMinimumOrderAmountText({
+    merchantData,
+    referrerData,
+  });
+  const referrerName = getReferrerName(referrerData);
+  const primaryText = getPrimaryText({
+    primaryTextTemplate: rawPopupCustomisation.primaryText,
+    merchantData,
+    referrerData,
+    discountOffer,
+    minimumOrderAmount,
+  });
+  const secondaryText = replacePopupVariables(
+    popupCustomisation.secondaryText,
+    {
+      discountOffer,
+      minimumOrderAmount,
+      name: referrerName,
+    },
+  );
+
+  applyPopupCustomisation({ popupSettings });
+
+  document.getElementById("referrush-popup-title").innerText = primaryText;
+
+  document.getElementById("referrer_name_title").innerText = secondaryText;
+
+  if (!isAffiliate) handleDiscountCodeUsageText(merchantData);
+}
+
+function applyPopupCustomisation({ popupSettings }) {
+  const popupCustomisation = getPopupCustomisation(popupSettings);
+  const buttonBackgroundColor =
+    popupCustomisation.buttonBackgroundColor || "#000000";
+  const buttonTextColor = popupCustomisation.buttonTextColor || "#ffffff";
+  const secondaryTextColor = popupCustomisation.secondaryTextColor || "#7b7d80";
+  const primaryTextColor = popupCustomisation.primaryTextColor || "#000000";
+  const inputBackgroundColor =
+    popupCustomisation.inputBackgroundColor || "#e6e6e6";
+  const inputTextColor = popupCustomisation.inputTextColor || "#000000";
+  const buttonPadding = normaliseSpacingValue(
+    popupCustomisation.buttonPadding,
+    14,
+  );
+  const inputPadding = normaliseSpacingValue(
+    popupCustomisation.inputPadding,
+    14,
+  );
+  const buttonBorderRadius = normaliseSpacingValue(
+    normaliseBorderRadiusValue(popupCustomisation.buttonBorderRadius, 12),
+    12,
+  );
+  const inputBorderRadius = normaliseSpacingValue(
+    normaliseBorderRadiusValue(popupCustomisation.inputBorderRadius, 12),
+    12,
+  );
+  const poweredByElement = document.querySelector(".powered-by-popup");
+  const poweredByLinkElement = poweredByElement?.querySelector("a");
+  const shopNowTextElement = document.querySelector(
+    "#shop_now_button_referrush .referrush-primary-button-text",
+  );
+
+  document.getElementById("popup_content_referrush").style.backgroundColor =
+    popupCustomisation.backgroundColor || "#ffffff";
+  document.getElementById("referrush-popup-title").style.color =
+    primaryTextColor;
+  document.getElementById("referrer_name_title").style.color =
+    secondaryTextColor;
+  document.getElementById("referrush-discount-usage-text").style.color =
+    secondaryTextColor;
+
+  const footerText = document.querySelector(".referrush-footer-text");
+  if (footerText) footerText.style.color = secondaryTextColor;
+
+  if (poweredByElement) {
+    poweredByElement.style.display =
+      popupSettings?.showReferrushBranding === false ? "none" : "block";
+    poweredByElement.style.setProperty(
+      "color",
+      secondaryTextColor,
+      "important",
+    );
+  }
+
+  if (poweredByLinkElement) {
+    poweredByLinkElement.style.setProperty(
+      "color",
+      secondaryTextColor,
+      "important",
+    );
+  }
+
+  ["shop_now_button_referrush", "copy_code_button_referrush"].forEach((id) => {
+    const element = document.getElementById(id);
+    if (!element) return;
+    element.style.backgroundColor = buttonBackgroundColor;
+    element.style.color = buttonTextColor;
+  });
+
+  if (shopNowTextElement)
+    shopNowTextElement.style.setProperty("color", buttonTextColor, "important");
+
+  document.getElementById("shop_now_button_referrush").style.paddingTop =
+    `${buttonPadding}px`;
+  document.getElementById("shop_now_button_referrush").style.paddingBottom =
+    `${buttonPadding}px`;
+  document.getElementById("shop_now_button_referrush").style.borderRadius =
+    `${buttonBorderRadius}px`;
+
+  document.getElementById("copy_discount_code_section").style.backgroundColor =
+    inputBackgroundColor;
+  document.getElementById("copy_discount_code_section").style.borderRadius =
+    `${inputBorderRadius}px`;
+  document.getElementById("discount_code_referrush").style.color =
+    inputTextColor;
+  document.getElementById("discount_code_referrush").style.paddingTop =
+    `${inputPadding}px`;
+  document.getElementById("discount_code_referrush").style.paddingBottom =
+    `${inputPadding}px`;
+}
+
+function getCurrencySymbol(currencyCode) {
+  if (!currencyCode) return "";
+
+  return (
+    { INR: "₹", USD: "$", EUR: "€", GBP: "£" }[currencyCode] || currencyCode
+  );
+}
+
+function getDiscountOfferText({ merchantData, referrerData }) {
+  const discountType = referrerData?.discountType;
+  const discountAmount = referrerData?.discountAmount;
+  const currencySymbol = getCurrencySymbol(merchantData?.currencyCode);
+
+  if (
+    discountAmount === undefined ||
+    discountAmount === null ||
+    discountAmount === ""
+  ) {
+    return "discount";
+  }
+
+  if (discountType === "percentage") {
+    return `${discountAmount}%`;
+  }
+
+  return `${currencySymbol}${discountAmount}`;
+}
+
+function getMinimumOrderAmountText({ merchantData, referrerData }) {
+  const minimumOrderAmount = referrerData?.minimumOrderAmount;
+
+  if (
+    minimumOrderAmount === undefined ||
+    minimumOrderAmount === null ||
+    Number(minimumOrderAmount) <= 0
+  ) {
+    return "";
+  }
+
+  return `${getCurrencySymbol(merchantData?.currencyCode)}${minimumOrderAmount}`;
+}
+
+function getReferrerName(referrerData) {
+  return referrerData?.fullName || "Someone";
+}
+
+function getPrimaryText({
+  primaryTextTemplate,
+  merchantData,
+  referrerData,
+  discountOffer,
+  minimumOrderAmount,
+}) {
+  if (
+    typeof primaryTextTemplate !== "string" ||
+    primaryTextTemplate === defaultPopupCustomisation.primaryText
+  ) {
+    return getDefaultPrimaryText({ merchantData, referrerData });
+  }
+
+  return replacePopupVariables(primaryTextTemplate, {
+    discountOffer,
+    minimumOrderAmount,
+    name: getReferrerName(referrerData),
+  });
+}
+
+function getDefaultPrimaryText({ merchantData, referrerData }) {
+  const discountText = getDiscountOfferText({ merchantData, referrerData });
+  const minimumOrderAmount = referrerData?.minimumOrderAmount;
+  const currencySymbol = getCurrencySymbol(merchantData?.currencyCode);
+
+  if (!discountText) return "A discount!";
+
+  return Number(minimumOrderAmount) > 0
+    ? `${discountText} off when you spend ${currencySymbol}${minimumOrderAmount}!`
+    : `${discountText} off!`;
+}
+
+function replacePopupVariables(text, variables) {
+  const safeText = typeof text === "string" ? text : "";
+  return safeText
+    .replace(/\{\{\s*discountOffer\s*\}\}/g, variables.discountOffer)
+    .replace(/\{\{\s*minimumOrderAmount\s*\}\}/g, variables.minimumOrderAmount)
+    .replace(/\{\{\s*name\s*\}\}/g, variables.name);
+}
+
+function getPopupCustomisation(popupSettings) {
+  return {
+    ...defaultPopupCustomisation,
+    ...(popupSettings?.popupCustomisation || {}),
+  };
+}
+
+function normaliseSpacingValue(value, fallback) {
+  const parsedValue = Number(value);
+  return Number.isFinite(parsedValue) ? parsedValue : fallback;
+}
+
+function normaliseBorderRadiusValue(value, fallback) {
+  const parsedValue = Number(value);
+
+  if (!Number.isFinite(parsedValue)) {
+    return fallback;
+  }
+
+  return Math.min(
+    popupBorderRadiusMax,
+    Math.max(popupBorderRadiusMin, parsedValue),
+  );
+}
+
+function handleDiscountCodeUsageText(merchantData) {
+  const discountCodeUsagetextElement = document.getElementById(
+    "referrush-discount-usage-text",
+  );
+  const discountCodeUsageNewCustomersOnly =
+    merchantData?.discountCodeUsageNewCustomersOnly;
+  let discountCodeUsageText;
+
+  if (discountCodeUsageNewCustomersOnly === "onlyNewCustomers") {
+    discountCodeUsageText = "Only new customers can use the discount";
+  } else {
+    discountCodeUsageText = "All customers can use the discount";
+  }
+
+  discountCodeUsagetextElement.innerText = discountCodeUsageText;
+  discountCodeUsagetextElement.style.fontFamily = '"Inter", sans-serif';
+  discountCodeUsagetextElement.style.fontSize = "14px";
+  discountCodeUsagetextElement.style.marginTop = "12px";
+  discountCodeUsagetextElement.style.marginBottom = "12px";
+}
+
+function handleDiscountCode(discountCode) {
+  document.getElementById("copy_discount_code_section").style.display = "flex";
+  document.getElementById("discount_code_referrush").innerText = discountCode;
+  handleHideLoadingAndShowPopupContent(false);
+}
+
+function handleShowSkeleton() {
+  document.getElementById("popup_overlay_referrush").style.display = "flex";
+  document.getElementById("popup_content_referrush").style.display = "block";
+  document.getElementById("skeleton_loader_referrush").style.display = "flex";
+  document.getElementById("popup_text_referrush").style.display = "none";
+  document.getElementById("referrush_error_state").style.display = "none";
+}
+
+function handleHideLoadingAndShowPopupContent(isError) {
+  document.getElementById("skeleton_loader_referrush").style.display = "none";
+  document.getElementById(
+    isError ? "referrush_error_state" : "popup_text_referrush",
+  ).style.display = "block";
+}
+
+function formatProgramEndDate(endDate) {
+  if (!endDate) return "";
+
+  const date = new Date(endDate);
+  if (isNaN(date.getTime())) return "";
+
+  return date.toLocaleDateString("en-US", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
+// -----------------------------------------
+// PROGRAM PAUSED POPUP
+// -----------------------------------------
+function handleRenderPausedPopup({ popupSettings, merchantData, isAffiliate }) {
+  const endDateText = formatProgramEndDate(
+    merchantData?.programStatus?.endDate,
+  );
+  const shopNowBtn = document.getElementById("shop_now_button_referrush");
+  const shopNowText = shopNowBtn?.querySelector(
+    ".referrush-primary-button-text",
+  );
+  const footerText = document.querySelector(".referrush-footer-text");
+
+  const programLabel = isAffiliate ? "Affiliate" : "Referral";
+
+  document.getElementById("popup_content_referrush").style.display = "block";
+  document.getElementById("popup_overlay_referrush").style.display = "flex";
+  document.getElementById("skeleton_loader_referrush").style.display = "none";
+  document.getElementById("referrush_error_state").style.display = "none";
+
+  // Apply merchant colour/sizing customisation so the card looks correct
+  applyPopupCustomisation({ popupSettings });
+
+  // Keep the gift icon exactly as in the enabled state
+  document.getElementById("referrush_gift_icon").style.display = "block";
+
+  // Subtitle — leave all inline styles to the CSS class (.content-description), just swap the text
+  document.getElementById("referrer_name_title").innerText =
+    `${programLabel} program paused`;
+
+  // Title — leave all inline styles to the CSS h3 rule, just swap the text
+  document.getElementById("referrush-popup-title").innerText =
+    "We'll be back soon";
+
+  // Body copy — sits where the discount-usage-text sits, already styled by applyPopupCustomisation
+  const bodyText = document.getElementById("referrush-discount-usage-text");
+  bodyText.innerText = endDateText
+    ? `Check back after ${endDateText} to claim your discount.`
+    : "Check back soon to claim your discount.";
+  bodyText.style.display = "block";
+
+  // Hide the code box and footer line
+  document.getElementById("copy_discount_code_section").style.display = "none";
+  if (footerText) footerText.style.display = "none";
+
+  // Show button with "Got it" label
+  if (shopNowText) shopNowText.innerText = "Got it";
+  if (shopNowBtn) shopNowBtn.style.display = "block";
+
+  document.getElementById("popup_text_referrush").style.display = "block";
+}
+
+function handleRenderError({ errorCode } = {}) {
+  const copy = getPopupErrorCopy(errorCode);
+
+  document.getElementById("popup_content_referrush").style.display = "block";
+  document.getElementById("popup_overlay_referrush").style.display = "flex";
+  document.getElementById("skeleton_loader_referrush").style.display = "none";
+  document.getElementById("popup_text_referrush").style.display = "none";
+
+  const titleElement = document.getElementById("referrush-error-title");
+  if (titleElement) titleElement.innerText = copy.title;
+
+  const bodyElement = document.getElementById("referrush-error-body");
+  if (bodyElement) bodyElement.innerText = copy.body;
+
+  handleHideLoadingAndShowPopupContent(true);
+}
+
+function handleClosePopup() {
+  document.getElementById("popup_content_referrush").style.display = "none";
+  document.getElementById("popup_overlay_referrush").style.display = "none";
+}
+
+// --------------------------------------------------------------
+// DISCOUNT CODE APPLICATION LOGIC + UPDATING CART ATTRIBUTES
+// --------------------------------------------------------------
+function handleApplyDiscountCode({ discountCode } = {}) {
+  // https://shopify.dev/docs/api/ajax/reference/cart
+  if (!discountCode) return Promise.resolve(false);
+
+  return fetch(`/discount/${discountCode}`)
+    .then((r) => {
+      if (!r.ok) return false;
+      return r.text().then(() => true);
+    })
+    .catch(() => false);
+}
+
+function updateCartAttributes(attributes) {
+  if (!attributes || Object.keys(attributes).length === 0) return;
+
+  fetch("/cart/update.js", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ attributes }),
+  });
+}
+
+function handleUpdateReferralAttributes({
+  referrushReferralId,
+  referrushSource,
+  referrushPopupLastShown,
+  referrushAffiliateDiscount,
+  clearReferral,
+  clearAffiliate,
+}) {
+  if (
+    !referrushReferralId &&
+    !referrushSource &&
+    !referrushPopupLastShown &&
+    !referrushAffiliateDiscount &&
+    !clearReferral &&
+    !clearAffiliate
+  ) {
+    console.log("No attributes to update");
+    return;
+  }
+
+  fetch("/cart.js")
+    .then((response) => response.json())
+    .then((cart) => {
+      const currentReferrushReferralId = cart.attributes?.referrushReferralId;
+      const currentReferrushSource = cart.attributes?.referrushSource;
+      const currentReferrushPopupLastShown =
+        cart.attributes?.referrushPopupLastShown;
+      const currentReferrushAffiliateDiscount =
+        cart.attributes?.referrushAffiliateDiscount;
+
+      const updateObj = {};
+
+      // ONLY UPDATING IF VALUES HAVEN'T CHANGED
+      if (
+        referrushReferralId &&
+        currentReferrushReferralId !== referrushReferralId
+      )
+        updateObj.referrushReferralId = referrushReferralId;
+      if (referrushSource && currentReferrushSource !== referrushSource)
+        updateObj.referrushSource = referrushSource;
+      if (
+        referrushPopupLastShown &&
+        currentReferrushPopupLastShown !== referrushPopupLastShown
+      )
+        updateObj.referrushPopupLastShown = referrushPopupLastShown;
+      if (
+        referrushAffiliateDiscount &&
+        currentReferrushAffiliateDiscount !== referrushAffiliateDiscount
+      )
+        updateObj.referrushAffiliateDiscount = referrushAffiliateDiscount;
+
+      // DELETE OLDER ATTRIBUTES
+      if (clearReferral) {
+        if (currentReferrushReferralId) updateObj.referrushReferralId = "";
+        if (currentReferrushSource) updateObj.referrushSource = "";
+      }
+      if (clearAffiliate && currentReferrushAffiliateDiscount)
+        updateObj.referrushAffiliateDiscount = "";
+      if (Object.keys(updateObj).length > 0) updateCartAttributes(updateObj);
+    });
+}
+
+// ------------------------------
+// MISC HELPERS
+// ------------------------------
+function attachEventListeners() {
+  const shopNowBtn = document.getElementById("shop_now_button_referrush");
+  if (shopNowBtn) shopNowBtn.addEventListener("click", handleClosePopup);
+
+  const closeErrorBtn = document.getElementById("close_error_referrush");
+  if (closeErrorBtn) closeErrorBtn.addEventListener("click", handleClosePopup);
+
+  const closeBtn = document.getElementById("close_button_referrush");
+  if (closeBtn) closeBtn.addEventListener("click", handleClosePopup);
+
+  const copyCodeBtn = document.getElementById("copy_code_button_referrush");
+  if (copyCodeBtn) {
+    copyCodeBtn.addEventListener("click", () => {
+      const codeElem = document.getElementById("discount_code_referrush");
+      if (codeElem) {
+        const code = codeElem.textContent;
+        navigator.clipboard.writeText(code).then(() => {
+          copyCodeBtn.innerText = "Copied!";
+        });
+      }
+    });
+  }
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", attachEventListeners);
+} else {
+  attachEventListeners();
+}

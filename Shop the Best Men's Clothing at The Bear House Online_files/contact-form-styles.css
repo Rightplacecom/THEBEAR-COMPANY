@@ -1,0 +1,58 @@
+.refer-and-earn-button {
+  position: fixed;
+  z-index: 9998;
+  background-color: #262626;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 13px;
+  font-family: "Inter", sans-serif;
+  font-weight: 500;
+}
+
+.refer-and-earn-button.myfrido {
+  background-color: white;
+  border-radius: 50%;
+  width: 50px;
+  height: 50px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  border: 2px solid #000;
+}
+
+.refer-and-earn-button.myfrido img {
+  width: 30px;
+  height: 30px;
+}
+
+.referrush-widget-close-button {
+  position: fixed;
+  z-index: 9999;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background-color: #f3f4f6;
+  color: #374151; /* Text color that cascades to currentColor in SVG */
+  border: 1px solid #e5e7eb;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  padding: 0;
+}
+
+.referrush-widget-close-button:hover {
+  background-color: #e5e7eb;
+  color: #111827;
+}
+
+.referrush-widget-close-button svg {
+  display: block; /* Removes inline layout bugs to keep it perfectly centered */
+  width: 12px;
+  height: 12px;
+}

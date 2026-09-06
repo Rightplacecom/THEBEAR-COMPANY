@@ -1,0 +1,757 @@
+let isProgramDisabled = false;
+let programEndDate = null;
+
+async function init() {
+  try {
+    window.openReferRushSignupForm = openSignupForm;
+    // Hide raw container until remote CSS is applied
+    const container = document.getElementById("contact_form_main_referrush");
+    if (container) container.style.display = "none";
+
+    // Get shop data
+    const url = window.location.href;
+    const shopID = container?.dataset?.shopDomain;
+    if (!shopID) throw new Error("Shop ID not found");
+
+    // Fetch merchant data to configure button
+    const resp = await fetch(
+      "https://getsignupformdata-zvxulnvjca-el.a.run.app",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shopID, url }),
+      },
+    );
+    const data = await resp.json();
+
+    const programStatus = data.programStatus;
+    if (programStatus && programStatus.isEnabled === false) {
+      isProgramDisabled = true;
+      programEndDate = programStatus.endDate || null;
+    }
+
+    const merchantData = data.signupFormData;
+    const signupFormSettings = merchantData.signupFormSettings;
+
+    const button =
+      document.getElementById("refer_and_earn_button_referrush") ||
+      document.querySelector(".refer-and-earn-button");
+    const isMobile = window.innerWidth < 640;
+
+    const widgetSide = isMobile
+      ? signupFormSettings.mobileWidgetSide
+      : signupFormSettings.desktopWidgetSide;
+    const widgetLayout = isMobile
+      ? signupFormSettings.mobileWidgetLayout
+      : signupFormSettings.desktopWidgetLayout;
+    const pixelsFromSide = isMobile
+      ? signupFormSettings.mobilePixelsFromSide
+      : signupFormSettings.desktopPixelsFromSide;
+    const pixelsFromBottom = isMobile
+      ? signupFormSettings.mobilePixelsFromBottom
+      : signupFormSettings.desktopPixelsFromBottom;
+    const buttonBackgroundColor = isMobile
+      ? signupFormSettings.mobileBgColor
+      : signupFormSettings.desktopBgColor;
+    const buttonTextColor = isMobile
+      ? signupFormSettings.mobileTextColor
+      : signupFormSettings.desktopTextColor;
+    const iconType = isMobile
+      ? signupFormSettings.mobileWidgetType === "icon"
+      : signupFormSettings.desktopWidgetType === "icon";
+    const widgetTextBold = isMobile
+      ? signupFormSettings.mobileWidgetTextBold
+      : signupFormSettings.desktopWidgetTextBold;
+
+    const widgetTextSize = isMobile
+      ? signupFormSettings.mobileWidgetTextSize
+      : signupFormSettings.desktopWidgetTextSize;
+    const widgetPadding = isMobile
+      ? signupFormSettings.mobileWidgetPadding
+      : signupFormSettings.desktopWidgetPadding;
+    const widgetBorderEnabled = isMobile
+      ? signupFormSettings.mobileWidgetBorderEnabled
+      : signupFormSettings.desktopWidgetBorderEnabled;
+    const widgetBorderWidth = isMobile
+      ? signupFormSettings.mobileWidgetBorderWidth
+      : signupFormSettings.desktopWidgetBorderWidth;
+    const widgetBorderColor = isMobile
+      ? signupFormSettings.mobileWidgetBorderColor
+      : signupFormSettings.desktopWidgetBorderColor;
+    const widgetBorderRadius = isMobile
+      ? signupFormSettings.mobileWidgetBorderRadius
+      : signupFormSettings.desktopWidgetBorderRadius;
+
+    const disableSignupFormButton = merchantData.disableSignupFormButton;
+    const classnameForSignupFormButton =
+      merchantData.classnameForSignupFormButton;
+
+    // Configure button
+    configureButtonLayout({ button, widgetLayout, iconType, widgetPadding });
+
+    setButtonPosition({
+      button,
+      widgetSide,
+      pixelsFromSide,
+      pixelsFromBottom,
+    });
+
+    setButtonBorders({
+      button,
+      widgetLayout,
+      widgetSide,
+      pixelsFromSide,
+      widgetBorderEnabled,
+      widgetBorderWidth,
+      widgetBorderColor,
+      widgetBorderRadius,
+    });
+
+    configureButtonContent({
+      button,
+      iconType,
+      isMobile,
+      signupFormSettings,
+      buttonBackgroundColor,
+      buttonTextColor,
+      widgetTextBold,
+      widgetTextSize,
+    });
+
+    // If program is disabled, hide our ReferRush button
+    if (isProgramDisabled) {
+      button.style.display = "none";
+    } else {
+      button.style.display = "block";
+    }
+
+    // Setup close button
+    const closeButton = document.getElementById(
+      "referrush_widget_close_button",
+    );
+    const showCloseButton = merchantData.showCloseButton === true;
+    const shouldRenderCloseButton = showCloseButton && !isProgramDisabled;
+
+    if (closeButton) {
+      closeButton.style.display = "none";
+    }
+
+    if (shouldRenderCloseButton && closeButton && button) {
+      const isVertical = widgetLayout === "vertical";
+      const isLeft = widgetSide === "left";
+      closeButton.style.display = "flex";
+      // positioning acc to main btn
+      const btnWidth = button.offsetWidth || (isVertical ? 40 : 150);
+      const btnHeight = button.offsetHeight || (isVertical ? 150 : 36);
+
+      closeButton.style.bottom = `calc(${pixelsFromBottom} + ${btnHeight}px - 10px)`;
+
+      if (isLeft) {
+        closeButton.style.left = `calc(${pixelsFromSide} + ${btnWidth}px - 10px)`;
+        closeButton.style.right = "auto";
+      } else {
+        closeButton.style.right = `calc(${pixelsFromSide} + ${btnWidth}px - 10px)`;
+        closeButton.style.left = "auto";
+      }
+
+      closeButton.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        button.style.display = "none";
+        closeButton.style.display = "none";
+      });
+    }
+
+    // setup disable button event listener
+    handleDisableSignupFormButton({
+      button,
+      closeButton,
+      disableSignupFormButton,
+      classnameForSignupFormButton,
+    });
+
+    if (button) button.addEventListener("click", () => openSignupForm());
+    if (window.location.hash.includes("#rf")) {
+      await openSignupForm();
+    } else if (shouldAutoOpenSignupForm(merchantData)) {
+      const delayInSeconds = merchantData.autoOpenDelayInSeconds ?? 0;
+      setTimeout(async () => {
+        await openSignupForm();
+      }, delayInSeconds * 1000);
+    }
+
+    handleBlockedSubdomains(merchantData);
+    handlePageVisibility(merchantData);
+  } catch (error) {
+    console.error("Initialization error:", error);
+  }
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", init);
+} else {
+  init();
+}
+
+function shouldAutoOpenSignupForm(merchantData) {
+  if (
+    merchantData.signupFormOpenUrls &&
+    merchantData.signupFormOpenUrls.length > 0
+  ) {
+    const currentUrl = window.location.href;
+    return merchantData.signupFormOpenUrls.some((url) =>
+      currentUrl.includes(url),
+    );
+  }
+  return false;
+}
+
+function handleDisableSignupFormButton({
+  button,
+  closeButton,
+  disableSignupFormButton,
+  classnameForSignupFormButton,
+}) {
+  if (!button) return;
+
+  if (disableSignupFormButton === "custom") {
+    button.style.display = "none";
+    if (closeButton) {
+      closeButton.style.display = "none";
+    }
+    setupDisableSignupFormButtonObserver(classnameForSignupFormButton);
+  }
+
+  if (disableSignupFormButton === "both") {
+    console.log("inside both");
+    setupDisableSignupFormButtonObserver(classnameForSignupFormButton);
+  }
+}
+
+function setupDisableSignupFormButtonObserver(className) {
+  const selector = className.startsWith(".") ? className : `.${className}`;
+
+  function bindButton() {
+    const btn = document.querySelector(selector);
+
+    if (!btn) return;
+
+    if (btn.dataset.referrushBound) return;
+
+    // console.log("Binding ReferRush button:", btn);
+
+    btn.dataset.referrushBound = "true";
+
+    btn.addEventListener(
+      "click",
+      (e) => {
+        // console.log("CLICK EVENT OBJECT:", e);
+
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+
+        window.openReferRushSignupForm();
+      },
+      true,
+    );
+  }
+
+  // Bind immediately in case button already exists
+  bindButton();
+
+  // Watch for DOM changes
+  const observer = new MutationObserver(() => {
+    bindButton();
+  });
+
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+  });
+}
+
+function handleBlockedSubdomains(merchantData) {
+  setTimeout(() => {
+    const blockedSubdomains =
+      merchantData?.signupFormSettings?.blockedSubdomains;
+    if (blockedSubdomains) {
+      const isBlocked =
+        blockedSubdomains.some((subdomain) =>
+          window.location.pathname.includes(subdomain),
+        ) || blockedSubdomains.includes(window.location.hostname);
+      if (isBlocked) {
+        hideReferRushButton();
+      }
+    }
+  }, 0);
+}
+
+function handlePageVisibility(merchantData) {
+  if (!shouldShowOnCurrentPage(merchantData)) {
+    hideReferRushButton();
+  }
+}
+
+function shouldShowOnCurrentPage(merchantData) {
+  const visibility = merchantData.signupFormPageVisibility;
+  const path = window.location.pathname;
+
+  if (!visibility || visibility.mode === "all") {
+    return true;
+  }
+
+  if (visibility.mode === "landing_page") {
+    return path === "/";
+  }
+
+  if (visibility.mode === "custom") {
+    const hasIncludes =
+      visibility.includeRoutes && visibility.includeRoutes.length > 0;
+    const hasExcludes =
+      visibility.excludeRoutes && visibility.excludeRoutes.length > 0;
+    const path = window.location.pathname;
+
+    const isMatch = (route, currentPath) => {
+      try {
+        const routePath = new URL(route).pathname;
+        if (routePath === "/") {
+          return currentPath === "/";
+        }
+        const cleanRoutePath = routePath.endsWith("/")
+          ? routePath.slice(0, -1)
+          : routePath;
+        return currentPath.includes(cleanRoutePath);
+      } catch {
+        if (route === "/" || route === "") {
+          return currentPath === "/";
+        }
+        const cleanRoute = route.endsWith("/") ? route.slice(0, -1) : route;
+        return currentPath.includes(cleanRoute);
+      }
+    };
+
+    if (hasExcludes) {
+      const isExcluded = visibility.excludeRoutes.some((route) =>
+        isMatch(route, path),
+      );
+      if (isExcluded) return false;
+    }
+
+    if (hasIncludes) {
+      return visibility.includeRoutes.some((route) => isMatch(route, path));
+    }
+
+    return true;
+  }
+
+  return true;
+}
+
+function hideReferRushButton() {
+  const button =
+    document.getElementById("refer_and_earn_button_referrush") ||
+    document.querySelector(".refer-and-earn-button");
+
+  if (button) {
+    button.style.display = "none";
+  }
+  const closeButton = document.getElementById("referrush_widget_close_button");
+  if (closeButton) {
+    closeButton.style.display = "none";
+  }
+}
+
+function configureButtonLayout({
+  button,
+  widgetLayout,
+  iconType,
+  widgetPadding,
+}) {
+  if (!button) return;
+  if (widgetLayout === "vertical") {
+    button.style.width = "auto";
+    button.style.minWidth = "40px";
+    button.style.padding = widgetPadding || "12px 0";
+    if (!iconType) {
+      Object.assign(button.style, {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        writingMode: "vertical-rl",
+        textOrientation: "mixed",
+        transform: "rotate(180deg)",
+      });
+    }
+  } else {
+    button.style.display = "inline-flex";
+    button.style.alignItems = "center";
+    button.style.justifyContent = "center";
+    button.style.padding = widgetPadding || "0 8px";
+    button.style.width = "auto";
+    button.style.minHeight = "36px";
+    button.style.height = "auto";
+    button.style.minWidth = "0";
+    button.style.whiteSpace = "nowrap";
+  }
+}
+
+function setButtonPosition({
+  button,
+  widgetSide,
+  pixelsFromSide,
+  pixelsFromBottom,
+}) {
+  if (!button) return;
+  button.style[widgetSide === "left" ? "left" : "right"] = `${pixelsFromSide}`;
+  button.style[widgetSide === "left" ? "right" : "left"] = "auto";
+  button.style.bottom = `${pixelsFromBottom}`;
+}
+
+function setButtonBorders({
+  button,
+  widgetLayout,
+  widgetSide,
+  pixelsFromSide,
+  widgetBorderEnabled,
+  widgetBorderWidth,
+  widgetBorderColor,
+  widgetBorderRadius,
+}) {
+  if (!button) return;
+
+  if (widgetBorderEnabled) {
+    button.style.border = `${widgetBorderWidth || "1px"} solid ${widgetBorderColor || "#000000"}`;
+    button.style.borderRadius = widgetBorderRadius || "4px";
+  } else {
+    button.style.border = "none";
+    button.style.borderRadius = "4px";
+  }
+
+  if (widgetSide === "left" && pixelsFromSide === "0px") {
+    if (widgetLayout === "horizontal") {
+      button.style.borderTopLeftRadius = "0";
+      button.style.borderBottomLeftRadius = "0";
+    } else {
+      button.style.borderTopRightRadius = "0";
+      button.style.borderBottomRightRadius = "0";
+    }
+  } else if (widgetSide === "right" && pixelsFromSide === "0px") {
+    if (widgetLayout === "horizontal") {
+      button.style.borderTopRightRadius = "0";
+      button.style.borderBottomRightRadius = "0";
+    } else {
+      button.style.borderTopLeftRadius = "0";
+      button.style.borderBottomLeftRadius = "0";
+    }
+  }
+}
+
+function configureButtonContent({
+  button,
+  iconType,
+  isMobile,
+  signupFormSettings,
+  buttonBackgroundColor,
+  buttonTextColor,
+  widgetTextBold,
+  widgetTextSize,
+}) {
+  if (!button) return;
+  button.style.backgroundColor = buttonBackgroundColor ?? "#000000";
+  button.style.color = buttonTextColor ?? "#ffffff";
+  button.style.setProperty(
+    "font-weight",
+    iconType ? "500" : widgetTextBold ? "700" : "500",
+    "important",
+  );
+  if (widgetTextSize) {
+    button.style.setProperty("font-size", widgetTextSize, "important");
+  }
+  if (iconType) {
+    button.classList.add("myfrido");
+    const img = document.createElement("img");
+    img.src =
+      "https://firebasestorage.googleapis.com/v0/b/refero1.appspot.com/o/ReferRushData%2FMoneyBag.png?alt=media&token=496b298a-586f-4344-a365-0a53a39713b9";
+    button.innerHTML = "";
+    button.appendChild(img);
+  } else {
+    button.innerText = isMobile
+      ? (signupFormSettings.mobileWidgetText ?? "Refer and Earn")
+      : (signupFormSettings.desktopWidgetText ?? "Refer and Earn");
+  }
+}
+
+// Function that handles button click operation
+async function openSignupForm() {
+  if (isProgramDisabled) {
+    renderPausedSignupForm();
+    return;
+  }
+
+  try {
+    const response = await fetch(
+      "https://asia-south1-refero1.cloudfunctions.net/sendSignupFormFiles?v=1.0",
+      {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+    const data = await response.json();
+    if (!data.success)
+      throw new Error(
+        `Error while fetching signup form data from server: ${data}`,
+      );
+
+    renderSignupForm({
+      htmlContent: data.html,
+      cssContent: data.css,
+      jsContent: data.js,
+    });
+
+    // setTimeout(() => { checkContainerVisibility() }, 100)
+  } catch (error) {
+    console.error(`Error while fetching signup form content:`, error);
+  }
+}
+
+// Renders a "program paused" modal when the referral program is disabled
+function renderPausedSignupForm() {
+  const container = document.getElementById("contact_form_main_referrush");
+  if (!container) return;
+
+  let endDateText = "";
+  if (programEndDate) {
+    const date = new Date(programEndDate);
+    if (!isNaN(date.getTime())) {
+      endDateText = date.toLocaleDateString("en-US", {
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      });
+    }
+  }
+
+  const pausedMessage = endDateText
+    ? `The referral program is temporarily paused. Please come back after ${endDateText} to claim your referral benefits.`
+    : `The referral program is temporarily paused. Please check back later to claim your referral benefits.`;
+
+  Object.assign(container.style, {
+    position: "fixed",
+    top: "0",
+    left: "0",
+    width: "100%",
+    height: "100%",
+    backgroundColor: "transparent",
+    display: "block",
+    zIndex: "10000",
+    overflow: "visible",
+    visibility: "visible",
+    pointerEvents: "auto",
+  });
+
+  container.innerHTML = "";
+
+  const overlay = document.createElement("div");
+  Object.assign(overlay.style, {
+    position: "fixed",
+    top: "0",
+    left: "0",
+    width: "100%",
+    height: "100%",
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: "10001",
+  });
+
+  const modal = document.createElement("div");
+  Object.assign(modal.style, {
+    backgroundColor: "#ffffff",
+    borderRadius: "16px",
+    padding: "32px 24px",
+    maxWidth: "400px",
+    width: "90%",
+    textAlign: "center",
+    fontFamily: '"Inter", "Helvetica Neue", Arial, sans-serif',
+    boxShadow: "0 20px 60px rgba(0, 0, 0, 0.15)",
+    position: "relative",
+  });
+
+  const closeBtn = document.createElement("button");
+  closeBtn.innerHTML = "&times;";
+  Object.assign(closeBtn.style, {
+    position: "absolute",
+    top: "12px",
+    right: "16px",
+    background: "none",
+    border: "none",
+    fontSize: "24px",
+    cursor: "pointer",
+    color: "#666",
+    lineHeight: "1",
+    padding: "0",
+  });
+
+  const title = document.createElement("h3");
+  title.innerText = "Program Paused";
+  Object.assign(title.style, {
+    fontSize: "20px",
+    fontWeight: "600",
+    color: "#000000",
+    margin: "0 0 12px 0",
+  });
+
+  const message = document.createElement("p");
+  message.innerText = pausedMessage;
+  Object.assign(message.style, {
+    fontSize: "15px",
+    color: "#555555",
+    lineHeight: "1.5",
+    margin: "0 0 24px 0",
+  });
+
+  const gotItBtn = document.createElement("button");
+  gotItBtn.innerText = "Got it";
+  Object.assign(gotItBtn.style, {
+    backgroundColor: "#000000",
+    color: "#ffffff",
+    border: "none",
+    borderRadius: "12px",
+    padding: "14px 32px",
+    fontSize: "15px",
+    fontWeight: "600",
+    cursor: "pointer",
+    width: "100%",
+  });
+
+  const closeForm = () => {
+    container.style.visibility = "hidden";
+    container.style.pointerEvents = "none";
+    container.style.display = "none";
+    container.innerHTML = "";
+  };
+
+  closeBtn.addEventListener("click", closeForm);
+  gotItBtn.addEventListener("click", closeForm);
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) closeForm();
+  });
+
+  modal.appendChild(closeBtn);
+  modal.appendChild(title);
+  modal.appendChild(message);
+  modal.appendChild(gotItBtn);
+  overlay.appendChild(modal);
+  container.appendChild(overlay);
+}
+
+// Function to render the signup form with HTML and CSS
+function renderSignupForm({ htmlContent, cssContent, jsContent }) {
+  // Get the container div
+  const container = document.getElementById("contact_form_main_referrush");
+  if (!container) {
+    console.error("Contact form container not found");
+    return;
+  }
+
+  // First, style the container to make it visible and properly positioned
+  Object.assign(container.style, {
+    position: "fixed",
+    top: "0",
+    left: "0",
+    width: "100%",
+    height: "100%",
+    backgroundColor: "transparent",
+    display: "block",
+    zIndex: "10000",
+    overflow: "visible",
+    visibility: "hidden",
+    pointerEvents: "none",
+  });
+
+  // Clear any existing content
+  container.innerHTML = "";
+
+  const existingStyleElement = document.getElementById(
+    "referrush-signup-form-styles",
+  );
+  if (existingStyleElement) {
+    existingStyleElement.remove();
+  }
+
+  // Create and append the CSS styles
+  const styleElement = document.createElement("style");
+  styleElement.id = "referrush-signup-form-styles";
+  styleElement.textContent = cssContent;
+  document.head.appendChild(styleElement);
+
+  // Remove the external CSS link from the HTML content
+  const modifiedHtmlContent = htmlContent.replace(
+    '<link rel="stylesheet" href="styles.css">',
+    "",
+  );
+
+  try {
+    // Create a wrapper div for the modal content
+    const modalWrapper = document.createElement("div");
+    modalWrapper.style.position = "relative";
+    modalWrapper.style.maxWidth = "100%";
+    modalWrapper.style.maxHeight = "100%";
+
+    // Set the HTML content to the wrapper
+    modalWrapper.innerHTML = modifiedHtmlContent;
+
+    // Append the wrapper to the container
+    container.appendChild(modalWrapper);
+
+    // Create and append the JS script
+    if (jsContent) {
+      const scriptElement = document.createElement("script");
+      scriptElement.textContent = `(() => {\n${jsContent}\n})();`;
+      container.appendChild(scriptElement);
+    }
+  } catch (error) {
+    console.error("Error setting innerHTML:", error);
+  }
+
+  const desktopModal = container.querySelector(".desktop-modal-referrush");
+  const drawer = container.querySelector(".drawer-referrush");
+  const overlayEl = container.querySelector(".overlay-referrush");
+
+  // Close function to hide the form
+  const closeForm = () => {
+    if (desktopModal) desktopModal.classList.remove("active-referrush");
+    if (drawer) drawer.classList.remove("active-referrush");
+    if (overlayEl) overlayEl.classList.remove("active-referrush");
+
+    // Hide container after transition
+    setTimeout(() => {
+      container.style.visibility = "hidden";
+      container.style.pointerEvents = "none";
+      container.style.display = "none";
+    }, 300);
+  };
+
+  const closeBtn = container.querySelector(".close-btn-referrush");
+  const mobileCloseBtn = container.querySelector(".mobile-close-btn-referrush");
+
+  if (closeBtn) closeBtn.addEventListener("click", closeForm);
+  if (mobileCloseBtn) mobileCloseBtn.addEventListener("click", closeForm);
+  if (overlayEl) overlayEl.addEventListener("click", closeForm);
+
+  // Initially hide the success section and show the input form
+  const inputSection = container.querySelector("#contact_form_input_referrush");
+  const successSection = container.querySelector(
+    "#contact_form_success_referrush",
+  );
+
+  if (inputSection) inputSection.style.display = "block";
+  if (successSection) successSection.style.display = "none";
+
+  console.log("Form rendered successfully - checking container visibility");
+}

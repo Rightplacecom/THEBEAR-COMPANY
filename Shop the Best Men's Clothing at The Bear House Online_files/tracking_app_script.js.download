@@ -1,0 +1,135 @@
+(() => {
+    const TRVC_TRACKING_SCRIPT = 'ecomapp.vcommission.com/public/js/tracking_app_script.js';
+    const TRVC_ARRAY_UTM_SOURCE = ['vcommission', 'vc', 'vcom'];
+    const TRVC_UTM_KEYS = ['utm_source', 'utm_term', 'utm_medium', 'utm_campaign', 'utm_content', 'p1', 'click_id'];
+
+    const selectedScript = document.querySelector(`script[src*="${TRVC_TRACKING_SCRIPT}"]`);
+    if (!selectedScript) return;
+
+    const tpaPageURL = window.location.href;
+
+    // ? Parse query params ONCE (no SDK needed)
+    const urlParams = new URLSearchParams(window.location.search);
+
+    // Helper: Set Cookie
+    const trvcSetCookie = (name, value, days = 30) => {
+        const d = new Date();
+        d.setTime(d.getTime() + days * 86400000);
+        document.cookie = `${name}=${value}; expires=${d.toUTCString()}; path=/`;
+    };
+
+    // Helper: Get Cookie
+    const trvcGetCookie = name => {
+        const cookies = document.cookie.split('; ');
+        const found = cookies.find(c => c.startsWith(name + '='));
+        return found ? found.split('=')[1] : '';
+    };
+
+    // Helper: Parse Query Params
+    const getQueryParams = () => {
+        return Object.fromEntries(urlParams.entries());
+    };
+
+    // Set all UTM cookies
+    const setAllCookies = () => {
+        const params = getQueryParams();
+        TRVC_UTM_KEYS.forEach(key => {
+            if (params[key]) {
+                trvcSetCookie(`tr_vc-${key}`, params[key], 30);
+            }
+        });
+
+        // also store extra params safely
+        ['campaign_id', 'pub_id', 'fbclid', 'gclid'].forEach(key => {
+            if (urlParams.get(key)) {
+                trvcSetCookie(`tr_vc-${key}`, urlParams.get(key), 30);
+            }
+        });
+
+        trvcSetCookie(`tr_vc-lp_url`, tpaPageURL, 30);
+    };
+
+    // ? SAFE: No SDK dependency
+    const getUtmAttributes = () => ({
+        utm_source: trvcGetCookie('tr_vc-utm_source'),
+        utm_medium: trvcGetCookie('tr_vc-utm_medium'),
+        utm_campaign: trvcGetCookie('tr_vc-utm_campaign'),
+        utm_content: trvcGetCookie('tr_vc-utm_content'),
+        tr_click_id: trvcGetCookie('tr_vc-click_id'),
+        campaign_id: trvcGetCookie('tr_vc-campaign_id'),
+        pub_id: trvcGetCookie('tr_vc-pub_id'),
+        fbclid: trvcGetCookie('tr_vc-fbclid'),
+        gclid: trvcGetCookie('tr_vc-gclid')
+    });
+
+    // Update Shopify Cart Attributes
+    const updateCartAttributes = attributes => {
+        try {
+            fetch('/cart/update.js', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: JSON.stringify({ attributes })
+            })
+            .then(() => console.log('Cart attributes updated'))
+            .catch(err => console.warn('Cart update skipped:', err));
+        } catch (err) {
+            console.warn('Cart update failed:', err);
+        }
+    };
+
+    // Main Logic
+    if (tpaPageURL.includes('utm_source')) {
+        setAllCookies();
+
+        const trvcGetUtmSource = trvcGetCookie('tr_vc-utm_source');
+
+        if (trvcGetUtmSource) {
+            let isMatched = TRVC_ARRAY_UTM_SOURCE.some(item =>
+                trvcGetUtmSource.toLowerCase().includes(item.toLowerCase())
+            );
+
+            if (isMatched) {
+                console.log("? UTM source matched");
+                updateCartAttributes(getUtmAttributes());
+            } else {
+                console.log("? No match found");
+
+                let trvcGetClickID = trvcGetCookie('tr_vc-click_id');
+                if (trvcGetClickID) {
+                    trvcSetCookie('tr_vc-click_id', "bvc" + trvcGetClickID, 30);
+
+                    setTimeout(() => {
+                        updateCartAttributes(getUtmAttributes());
+                    }, 1000);
+                }
+            }
+        } else {
+            console.log("?? No UTM source cookie found");
+        }
+    }
+
+    // ? Load Trackier SDK ONLY for tracking
+    const loadTrackierSdkDirectLink = () => {
+        const sdk = document.createElement("script");
+        sdk.src = "https://static-cdn.trackier.com/js/trackier-web-sdk.js";
+        sdk.async = true;
+
+        sdk.onload = function () {
+            if (window.TrackierWebSDK) {
+                window.TrackierWebSDK.setClickPixelCb(function (clickId) {
+                    console.log("Trackier Click ID:", clickId);
+                });
+
+                window.TrackierWebSDK.trackClick("track.vcommission.com");
+            }
+        };
+
+        document.body.appendChild(sdk);
+    };
+
+    loadTrackierSdkDirectLink();
+
+})();
