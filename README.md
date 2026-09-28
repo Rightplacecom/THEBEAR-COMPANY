@@ -1,4 +1,4 @@
-# The Bear House — Product Design
+# The Bear House
 LIVE LINK: https://thebear-house-2.onrender.com
 
 ## Product overview
